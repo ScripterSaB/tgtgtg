@@ -11,15 +11,19 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# ---------- ТОКЕН (ТОЛЬКО ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ) ----------
+# ---------- ТОКЕН ----------
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN not set! Add environment variable on Render.")
+    raise ValueError("BOT_TOKEN not set!")
 
 # ---------- НАСТРОЙКИ ----------
 MAX_KEYS = 100
 MAX_DAYS = 1000
 AVAILABLE_DAYS = [30, 90, 180]
+
+# ---------- АДМИН (укажите username без @) ----------
+ADMIN_USERNAME = "apyzj"  # админ по username
+ADMIN_ID = None  # заполнится автоматически при первом обращении
 
 # ---------- СЕКРЕТ ----------
 def get_secret():
@@ -70,6 +74,8 @@ class Form(StatesGroup):
     waiting_for_days = State()
     waiting_for_count = State()
     waiting_for_check_key = State()
+    waiting_admin_broadcast = State()
+    waiting_admin_stats = State()
 
 # ---------- ТЕКСТЫ ----------
 texts = {
@@ -78,6 +84,7 @@ texts = {
         'gen_key': "🔑 Сгенерировать ключ",
         'check_key': "✅ Проверить ключ",
         'settings': "⚙️ Настройки",
+        'admin_panel': "👑 Админ панель",
         'back': "🔙 Назад",
         'lang_ru': "🇷🇺 Русский",
         'lang_en': "🇬🇧 English",
@@ -96,13 +103,24 @@ texts = {
         'enter_key_to_check': "🔍 Введите ключ для проверки (27 символов):",
         'check_result': "{}\n\n{}",
         'check_again': "🔍 Проверить другой",
-        'settings_menu': "⚙️ Настройки\n\nВыберите язык:"
+        'settings_menu': "⚙️ Настройки\n\nВыберите действие:",
+        'admin_menu': "👑 Админ панель\n\nВыберите действие:",
+        'admin_broadcast': "📢 Сделать рассылку",
+        'admin_stats': "📊 Статистика",
+        'admin_users': "👥 Список пользователей",
+        'enter_broadcast': "📝 Введите текст для рассылки:",
+        'broadcast_sent': "✅ Рассылка отправлена {} пользователям",
+        'stats_text': "📊 Статистика бота:\n👥 Всего пользователей: {}\n🕐 Бот работает: {} дн {} ч {} мин",
+        'no_users': "Нет пользователей",
+        'users_list': "👥 Список пользователей:\n{}",
+        'access_denied': "⛔ Доступ запрещён. Вы не администратор."
     },
     'en': {
         'main_menu': "🏠 Main menu\n\nChoose action:",
         'gen_key': "🔑 Generate key",
         'check_key': "✅ Check key",
         'settings': "⚙️ Settings",
+        'admin_panel': "👑 Admin panel",
         'back': "🔙 Back",
         'lang_ru': "🇷🇺 Russian",
         'lang_en': "🇬🇧 English",
@@ -121,7 +139,17 @@ texts = {
         'enter_key_to_check': "🔍 Enter key to check (27 characters):",
         'check_result': "{}\n\n{}",
         'check_again': "🔍 Check another",
-        'settings_menu': "⚙️ Settings\n\nChoose language:"
+        'settings_menu': "⚙️ Settings\n\nChoose action:",
+        'admin_menu': "👑 Admin panel\n\nChoose action:",
+        'admin_broadcast': "📢 Broadcast message",
+        'admin_stats': "📊 Statistics",
+        'admin_users': "👥 Users list",
+        'enter_broadcast': "📝 Enter message to broadcast:",
+        'broadcast_sent': "✅ Broadcast sent to {} users",
+        'stats_text': "📊 Bot statistics:\n👥 Total users: {}\n🕐 Bot uptime: {}d {}h {}m",
+        'no_users': "No users",
+        'users_list': "👥 Users list:\n{}",
+        'access_denied': "⛔ Access denied. You are not admin."
     }
 }
 
@@ -130,6 +158,16 @@ storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=storage)
 user_lang = {}
+user_id_by_username = {}  # для хранения соответствия username -> user_id
+start_time = time.time()
+
+# ---------- ПРОВЕРКА АДМИНА ----------
+def is_admin(user_id: int, username: str = None) -> bool:
+    if ADMIN_ID and user_id == ADMIN_ID:
+        return True
+    if username and username.lower() == ADMIN_USERNAME.lower():
+        return True
+    return False
 
 # ---------- КЛАВИАТУРЫ ----------
 def main_menu(lang):
@@ -148,11 +186,22 @@ def days_keyboard(lang):
     kb.append([InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
-def settings_keyboard(lang):
-    return InlineKeyboardMarkup(inline_keyboard=[
+def settings_keyboard(lang, is_admin_user: bool):
+    kb = [
         [InlineKeyboardButton(text=texts[lang]['lang_ru'], callback_data="lang_ru")],
-        [InlineKeyboardButton(text=texts[lang]['lang_en'], callback_data="lang_en")],
-        [InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")]
+        [InlineKeyboardButton(text=texts[lang]['lang_en'], callback_data="lang_en")]
+    ]
+    if is_admin_user:
+        kb.append([InlineKeyboardButton(text=texts[lang]['admin_panel'], callback_data="admin_panel")])
+    kb.append([InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def admin_keyboard(lang):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=texts[lang]['admin_broadcast'], callback_data="admin_broadcast")],
+        [InlineKeyboardButton(text=texts[lang]['admin_stats'], callback_data="admin_stats")],
+        [InlineKeyboardButton(text=texts[lang]['admin_users'], callback_data="admin_users")],
+        [InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_settings")]
     ])
 
 def after_check_keyboard(lang):
@@ -166,7 +215,19 @@ def after_check_keyboard(lang):
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
+    username = message.from_user.username
     lang = user_lang.get(user_id, 'ru')
+    
+    # Сохраняем соответствие username -> user_id
+    if username:
+        user_id_by_username[username.lower()] = user_id
+    
+    # Если это админ и ADMIN_ID ещё не установлен
+    global ADMIN_ID
+    if not ADMIN_ID and username and username.lower() == ADMIN_USERNAME.lower():
+        ADMIN_ID = user_id
+        print(f"✅ Админ установлен: {username} (ID: {ADMIN_ID})")
+    
     await message.answer(texts[lang]['main_menu'], reply_markup=main_menu(lang))
 
 @dp.callback_query(lambda c: c.data == "back_to_menu")
@@ -177,11 +238,20 @@ async def back_to_menu(callback: types.CallbackQuery, state: FSMContext):
     await callback.message.edit_text(texts[lang]['main_menu'], reply_markup=main_menu(lang))
     await callback.answer()
 
+@dp.callback_query(lambda c: c.data == "back_to_settings")
+async def back_to_settings(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    is_admin_user = is_admin(user_id, callback.from_user.username)
+    await callback.message.edit_text(texts[lang]['settings_menu'], reply_markup=settings_keyboard(lang, is_admin_user))
+    await callback.answer()
+
 @dp.callback_query(lambda c: c.data == "settings")
 async def settings_menu(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     lang = user_lang.get(user_id, 'ru')
-    await callback.message.edit_text(texts[lang]['settings_menu'], reply_markup=settings_keyboard(lang))
+    is_admin_user = is_admin(user_id, callback.from_user.username)
+    await callback.message.edit_text(texts[lang]['settings_menu'], reply_markup=settings_keyboard(lang, is_admin_user))
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("lang_"))
@@ -189,6 +259,86 @@ async def change_lang(callback: types.CallbackQuery):
     lang = callback.data.split("_")[1]
     user_lang[callback.from_user.id] = lang
     await callback.message.edit_text(texts[lang]['lang_changed'], reply_markup=main_menu(lang))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "admin_panel")
+async def admin_panel(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    if not is_admin(user_id, callback.from_user.username):
+        await callback.answer(texts[lang]['access_denied'], show_alert=True)
+        return
+    await callback.message.edit_text(texts[lang]['admin_menu'], reply_markup=admin_keyboard(lang))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "admin_broadcast")
+async def admin_broadcast_start(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    if not is_admin(user_id, callback.from_user.username):
+        await callback.answer(texts[lang]['access_denied'], show_alert=True)
+        return
+    await callback.message.edit_text(texts[lang]['enter_broadcast'])
+    await state.set_state(Form.waiting_admin_broadcast)
+    await callback.answer()
+
+@dp.message(Form.waiting_admin_broadcast)
+async def admin_broadcast_send(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    if not is_admin(user_id, message.from_user.username):
+        await message.answer(texts[lang]['access_denied'])
+        await state.clear()
+        return
+    
+    broadcast_text = message.text
+    sent = 0
+    for uid in user_lang.keys():
+        try:
+            await bot.send_message(uid, f"📢 <b>Рассылка от администратора</b>\n\n{broadcast_text}", parse_mode="HTML")
+            sent += 1
+            await asyncio.sleep(0.05)  # чтобы не блочить
+        except:
+            pass
+    
+    await message.answer(texts[lang]['broadcast_sent'].format(sent))
+    await state.clear()
+    await message.answer(texts[lang]['admin_menu'], reply_markup=admin_keyboard(lang))
+
+@dp.callback_query(lambda c: c.data == "admin_stats")
+async def admin_stats(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    if not is_admin(user_id, callback.from_user.username):
+        await callback.answer(texts[lang]['access_denied'], show_alert=True)
+        return
+    
+    total_users = len(user_lang)
+    uptime_seconds = int(time.time() - start_time)
+    days = uptime_seconds // 86400
+    hours = (uptime_seconds % 86400) // 3600
+    minutes = (uptime_seconds % 3600) // 60
+    
+    stats_text = texts[lang]['stats_text'].format(total_users, days, hours, minutes)
+    await callback.message.edit_text(stats_text, reply_markup=admin_keyboard(lang))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "admin_users")
+async def admin_users(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    if not is_admin(user_id, callback.from_user.username):
+        await callback.answer(texts[lang]['access_denied'], show_alert=True)
+        return
+    
+    if not user_lang:
+        await callback.message.edit_text(texts[lang]['no_users'], reply_markup=admin_keyboard(lang))
+    else:
+        users_list = "\n".join([f"• `{uid}`" for uid in user_lang.keys()][:50])
+        text = texts[lang]['users_list'].format(users_list)
+        if len(user_lang) > 50:
+            text += f"\n... и ещё {len(user_lang) - 50} пользователей"
+        await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=admin_keyboard(lang))
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data == "gen_key")
@@ -294,6 +444,7 @@ async def main():
     while True:
         try:
             print("✅ Бот запущен и работает...")
+            print(f"👑 Администратор: @{ADMIN_USERNAME} (ID будет определён при первом входе)")
             await dp.start_polling(bot)
         except Exception as e:
             print(f"❌ Ошибка: {e}")
