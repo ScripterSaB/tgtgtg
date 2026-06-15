@@ -191,11 +191,13 @@ def days_keyboard(lang):
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def settings_keyboard(lang, is_admin_user: bool):
+    # Кнопка "Мой ID" для всех
     kb = [
+        [InlineKeyboardButton(text=texts[lang]['my_id'], callback_data="show_my_id")],
         [InlineKeyboardButton(text=texts[lang]['lang_ru'], callback_data="lang_ru")],
-        [InlineKeyboardButton(text=texts[lang]['lang_en'], callback_data="lang_en")],
-        [InlineKeyboardButton(text=texts[lang]['my_id'], callback_data="show_my_id")]
+        [InlineKeyboardButton(text=texts[lang]['lang_en'], callback_data="lang_en")]
     ]
+    # Кнопка админ панели только для админа
     if is_admin_user:
         kb.append([InlineKeyboardButton(text=texts[lang]['admin_panel'], callback_data="admin_panel")])
     kb.append([InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")])
@@ -463,4 +465,4 @@ async def main():
     while True:
         try:
             print("✅ Бот запущен и работает...")
-            print(f"👑 Администратор: @{ADMIN_USERNAME} (ID определится при 
+ 
