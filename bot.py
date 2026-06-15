@@ -11,7 +11,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# ---------- ТОКЕН (читаем из переменных окружения Render) ----------
+# ---------- ТОКЕН (ТОЛЬКО ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ) ----------
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN not set! Add environment variable on Render.")
@@ -44,40 +44,84 @@ def generate_keys(count: int, days: int) -> list:
         keys.append(ts_str + '1' + signature)
     return keys
 
+def check_key_valid(key: str) -> dict:
+    if len(key) != 27:
+        return {'valid': False, 'reason': 'Неверная длина (27 символов)'}
+    try:
+        ts_str = key[:10]
+        flag = key[10:11]
+        signature = key[11:]
+        timestamp = int(ts_str)
+        now = int(time.time())
+        if timestamp < now:
+            return {'valid': False, 'reason': f'Ключ истёк (истёк {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))})'}
+        if flag != '1':
+            return {'valid': False, 'reason': 'Не премиум ключ'}
+        data = ts_str + flag
+        expected_sig = hmac.new(SECRET.encode(), data.encode(), hashlib.sha256).hexdigest()[:16].upper()
+        if signature != expected_sig:
+            return {'valid': False, 'reason': 'Неверная подпись'}
+        return {'valid': True, 'reason': f'✅ Ключ действителен до {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))}'}
+    except:
+        return {'valid': False, 'reason': 'Неверный формат ключа'}
+
 # ---------- FSM ----------
 class Form(StatesGroup):
     waiting_for_days = State()
     waiting_for_count = State()
+    waiting_for_check_key = State()
 
 # ---------- ТЕКСТЫ ----------
 texts = {
     'ru': {
-        'lang_choice': "🌐 Выберите язык / Choose language:",
-        'welcome': "🇷🇺 Добро пожаловать! Я генерирую ключи для BSX.\n\nВыберите срок действия (дней) или нажмите кнопку:",
+        'main_menu': "🏠 Главное меню\n\nВыберите действие:",
+        'gen_key': "🔑 Сгенерировать ключ",
+        'check_key': "✅ Проверить ключ",
+        'settings': "⚙️ Настройки",
+        'back': "🔙 Назад",
+        'lang_ru': "🇷🇺 Русский",
+        'lang_en': "🇬🇧 English",
+        'lang_changed': "🌐 Язык изменён на русский",
+        'choose_days': "📅 Выберите срок действия (дней) или нажмите кнопку:",
         'custom_days': f"📅 Введите количество дней (от 1 до {MAX_DAYS}):",
-        'after_days': f"✅ Срок: {{}} дн.\nТеперь введите количество ключей (от 1 до {MAX_KEYS}):",
+        'enter_count': f"✅ Срок: {{}} дн.\nТеперь введите количество ключей (от 1 до {MAX_KEYS}):",
         'generating': "⏳ Генерирую {} ключ(ей) на {} дн...",
         'keys_result': "✅ Ваши ключи:\n<pre>{}</pre>",
-        'copied_hint': "Скопируйте нужный ключ и активируйте в игре.",
+        'copied_hint': "Скопируйте нужный ключ",
         'error_days': f"❌ Ошибка: введите число от 1 до {MAX_DAYS}.",
         'error_count': f"❌ Ошибка: введите число от 1 до {MAX_KEYS}.",
-        'error_generate': "❌ Ошибка генерации. Попробуйте позже.",
-        'help_text': "/start — начать заново\n/help — эта справка",
-        'custom_btn': "✏️ Своё значение"
+        'error_generate': "❌ Ошибка генерации",
+        'help_text': "/start — главное меню",
+        'custom_btn': "✏️ Своё значение",
+        'enter_key_to_check': "🔍 Введите ключ для проверки (27 символов):",
+        'check_result': "{}\n\n{}",
+        'check_again': "🔍 Проверить другой",
+        'settings_menu': "⚙️ Настройки\n\nВыберите язык:"
     },
     'en': {
-        'lang_choice': "🌐 Choose language / Выберите язык:",
-        'welcome': "🇬🇧 Welcome! I generate keys for BSX.\n\nChoose validity period (days) or press button:",
+        'main_menu': "🏠 Main menu\n\nChoose action:",
+        'gen_key': "🔑 Generate key",
+        'check_key': "✅ Check key",
+        'settings': "⚙️ Settings",
+        'back': "🔙 Back",
+        'lang_ru': "🇷🇺 Russian",
+        'lang_en': "🇬🇧 English",
+        'lang_changed': "🌐 Language changed to English",
+        'choose_days': "📅 Choose validity period (days) or press button:",
         'custom_days': f"📅 Enter number of days (1 to {MAX_DAYS}):",
-        'after_days': f"✅ Period: {{}} days.\nNow enter number of keys (1 to {MAX_KEYS}):",
+        'enter_count': f"✅ Period: {{}} days.\nNow enter number of keys (1 to {MAX_KEYS}):",
         'generating': "⏳ Generating {} key(s) for {} days...",
         'keys_result': "✅ Your keys:\n<pre>{}</pre>",
-        'copied_hint': "Copy the key and activate it in the game.",
+        'copied_hint': "Copy the key you need",
         'error_days': f"❌ Error: enter a number from 1 to {MAX_DAYS}.",
         'error_count': f"❌ Error: enter a number from 1 to {MAX_KEYS}.",
-        'error_generate': "❌ Generation error. Try again later.",
-        'help_text': "/start — start over\n/help — this help",
-        'custom_btn': "✏️ Custom value"
+        'error_generate': "❌ Generation error",
+        'help_text': "/start — main menu",
+        'custom_btn': "✏️ Custom value",
+        'enter_key_to_check': "🔍 Enter key to check (27 characters):",
+        'check_result': "{}\n\n{}",
+        'check_again': "🔍 Check another",
+        'settings_menu': "⚙️ Settings\n\nChoose language:"
     }
 }
 
@@ -88,10 +132,11 @@ dp = Dispatcher(storage=storage)
 user_lang = {}
 
 # ---------- КЛАВИАТУРЫ ----------
-def lang_keyboard():
+def main_menu(lang):
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ru")],
-        [InlineKeyboardButton(text="🇬🇧 English", callback_data="lang_en")]
+        [InlineKeyboardButton(text=texts[lang]['gen_key'], callback_data="gen_key")],
+        [InlineKeyboardButton(text=texts[lang]['check_key'], callback_data="check_key")],
+        [InlineKeyboardButton(text=texts[lang]['settings'], callback_data="settings")]
     ])
 
 def days_keyboard(lang):
@@ -100,23 +145,61 @@ def days_keyboard(lang):
         suffix = "дн" if lang == 'ru' else "days"
         kb.append([InlineKeyboardButton(text=f"{d} {suffix}", callback_data=f"days_{d}")])
     kb.append([InlineKeyboardButton(text=texts[lang]['custom_btn'], callback_data="days_custom")])
+    kb.append([InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")])
     return InlineKeyboardMarkup(inline_keyboard=kb)
+
+def settings_keyboard(lang):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=texts[lang]['lang_ru'], callback_data="lang_ru")],
+        [InlineKeyboardButton(text=texts[lang]['lang_en'], callback_data="lang_en")],
+        [InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")]
+    ])
+
+def after_check_keyboard(lang):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=texts[lang]['check_again'], callback_data="check_key")],
+        [InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")]
+    ])
 
 # ---------- ХЕНДЛЕРЫ ----------
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer(texts['ru']['lang_choice'], reply_markup=lang_keyboard())
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    await message.answer(texts[lang]['main_menu'], reply_markup=main_menu(lang))
+
+@dp.callback_query(lambda c: c.data == "back_to_menu")
+async def back_to_menu(callback: types.CallbackQuery, state: FSMContext):
+    await state.clear()
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    await callback.message.edit_text(texts[lang]['main_menu'], reply_markup=main_menu(lang))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "settings")
+async def settings_menu(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    await callback.message.edit_text(texts[lang]['settings_menu'], reply_markup=settings_keyboard(lang))
+    await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("lang_"))
-async def process_lang(callback: types.CallbackQuery, state: FSMContext):
+async def change_lang(callback: types.CallbackQuery):
     lang = callback.data.split("_")[1]
     user_lang[callback.from_user.id] = lang
-    await callback.message.edit_text(texts[lang]['welcome'], reply_markup=days_keyboard(lang))
+    await callback.message.edit_text(texts[lang]['lang_changed'], reply_markup=main_menu(lang))
+    await callback.answer()
+
+@dp.callback_query(lambda c: c.data == "gen_key")
+async def gen_key_start(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    await callback.message.edit_text(texts[lang]['choose_days'], reply_markup=days_keyboard(lang))
     await callback.answer()
 
 @dp.callback_query(lambda c: c.data.startswith("days_"))
-async def process_days_callback(callback: types.CallbackQuery, state: FSMContext):
+async def process_days(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
     lang = user_lang.get(user_id, 'ru')
     parts = callback.data.split("_")
@@ -126,13 +209,13 @@ async def process_days_callback(callback: types.CallbackQuery, state: FSMContext
     else:
         days = int(parts[1])
         await state.update_data(days=days)
-        msg = texts[lang]['after_days'].format(days)
+        msg = texts[lang]['enter_count'].format(days)
         await callback.message.edit_text(msg)
         await state.set_state(Form.waiting_for_count)
     await callback.answer()
 
 @dp.message(Form.waiting_for_days)
-async def process_custom_days(message: types.Message, state: FSMContext):
+async def custom_days(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
     try:
@@ -141,7 +224,7 @@ async def process_custom_days(message: types.Message, state: FSMContext):
             await message.answer(texts[lang]['error_days'])
             return
         await state.update_data(days=days)
-        msg = texts[lang]['after_days'].format(days)
+        msg = texts[lang]['enter_count'].format(days)
         await message.answer(msg)
         await state.set_state(Form.waiting_for_count)
     except ValueError:
@@ -171,8 +254,28 @@ async def process_count(message: types.Message, state: FSMContext):
         await message.answer(texts[lang]['keys_result'].format(keys_text), parse_mode="HTML")
         await message.answer(texts[lang]['copied_hint'])
         await state.clear()
+        await message.answer(texts[lang]['main_menu'], reply_markup=main_menu(lang))
     except ValueError:
         await message.answer(texts[lang]['error_count'])
+
+@dp.callback_query(lambda c: c.data == "check_key")
+async def check_key_start(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    await callback.message.edit_text(texts[lang]['enter_key_to_check'])
+    await state.set_state(Form.waiting_for_check_key)
+    await callback.answer()
+
+@dp.message(Form.waiting_for_check_key)
+async def check_key_process(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    key = message.text.strip().upper()
+    result = check_key_valid(key)
+    status = "✅ ДЕЙСТВИТЕЛЕН" if result['valid'] else "❌ НЕДЕЙСТВИТЕЛЕН"
+    text = texts[lang]['check_result'].format(status, result['reason'])
+    await message.answer(text, reply_markup=after_check_keyboard(lang))
+    await state.clear()
 
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
@@ -184,9 +287,9 @@ async def cmd_help(message: types.Message):
 async def unknown(message: types.Message):
     user_id = message.from_user.id
     lang = user_lang.get(user_id, 'ru')
-    await message.answer("❓ " + ("Неизвестная команда. Используйте /start" if lang == 'ru' else "Unknown command. Use /start"))
+    await message.answer("❓ " + ("Используйте /start" if lang == 'ru' else "Use /start"))
 
-# ---------- АВТОПЕРЕЗАПУСК ----------
+# ---------- ЗАПУСК ----------
 async def main():
     while True:
         try:
