@@ -21,9 +21,9 @@ MAX_KEYS = 100
 MAX_DAYS = 1000
 AVAILABLE_DAYS = [30, 90, 180]
 
-# ---------- АДМИН (укажите username без @) ----------
-ADMIN_USERNAME = "apyzj"  # админ по username
-ADMIN_ID = None  # заполнится автоматически при первом обращении
+# ---------- АДМИН ----------
+ADMIN_USERNAME = "apyzj"
+ADMIN_ID = None
 
 # ---------- СЕКРЕТ ----------
 def get_secret():
@@ -75,7 +75,6 @@ class Form(StatesGroup):
     waiting_for_count = State()
     waiting_for_check_key = State()
     waiting_admin_broadcast = State()
-    waiting_admin_stats = State()
 
 # ---------- ТЕКСТЫ ----------
 texts = {
@@ -85,6 +84,7 @@ texts = {
         'check_key': "✅ Проверить ключ",
         'settings': "⚙️ Настройки",
         'admin_panel': "👑 Админ панель",
+        'my_id': "🆔 Мой ID",
         'back': "🔙 Назад",
         'lang_ru': "🇷🇺 Русский",
         'lang_en': "🇬🇧 English",
@@ -113,7 +113,9 @@ texts = {
         'stats_text': "📊 Статистика бота:\n👥 Всего пользователей: {}\n🕐 Бот работает: {} дн {} ч {} мин",
         'no_users': "Нет пользователей",
         'users_list': "👥 Список пользователей:\n{}",
-        'access_denied': "⛔ Доступ запрещён. Вы не администратор."
+        'access_denied': "⛔ Доступ запрещён. Вы не администратор.",
+        'show_id': "🆔 <b>Ваш ID:</b> <code>{}</code>\n{}",
+        'you_are_admin': "👑 Вы являетесь администратором бота"
     },
     'en': {
         'main_menu': "🏠 Main menu\n\nChoose action:",
@@ -121,6 +123,7 @@ texts = {
         'check_key': "✅ Check key",
         'settings': "⚙️ Settings",
         'admin_panel': "👑 Admin panel",
+        'my_id': "🆔 My ID",
         'back': "🔙 Back",
         'lang_ru': "🇷🇺 Russian",
         'lang_en': "🇬🇧 English",
@@ -149,7 +152,9 @@ texts = {
         'stats_text': "📊 Bot statistics:\n👥 Total users: {}\n🕐 Bot uptime: {}d {}h {}m",
         'no_users': "No users",
         'users_list': "👥 Users list:\n{}",
-        'access_denied': "⛔ Access denied. You are not admin."
+        'access_denied': "⛔ Access denied. You are not admin.",
+        'show_id': "🆔 <b>Your ID:</b> <code>{}</code>\n{}",
+        'you_are_admin': "👑 You are the bot administrator"
     }
 }
 
@@ -158,7 +163,6 @@ storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher(storage=storage)
 user_lang = {}
-user_id_by_username = {}  # для хранения соответствия username -> user_id
 start_time = time.time()
 
 # ---------- ПРОВЕРКА АДМИНА ----------
@@ -189,7 +193,8 @@ def days_keyboard(lang):
 def settings_keyboard(lang, is_admin_user: bool):
     kb = [
         [InlineKeyboardButton(text=texts[lang]['lang_ru'], callback_data="lang_ru")],
-        [InlineKeyboardButton(text=texts[lang]['lang_en'], callback_data="lang_en")]
+        [InlineKeyboardButton(text=texts[lang]['lang_en'], callback_data="lang_en")],
+        [InlineKeyboardButton(text=texts[lang]['my_id'], callback_data="show_my_id")]
     ]
     if is_admin_user:
         kb.append([InlineKeyboardButton(text=texts[lang]['admin_panel'], callback_data="admin_panel")])
@@ -210,6 +215,11 @@ def after_check_keyboard(lang):
         [InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")]
     ])
 
+def after_show_id_keyboard(lang):
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_settings")]
+    ])
+
 # ---------- ХЕНДЛЕРЫ ----------
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
@@ -218,11 +228,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
     username = message.from_user.username
     lang = user_lang.get(user_id, 'ru')
     
-    # Сохраняем соответствие username -> user_id
-    if username:
-        user_id_by_username[username.lower()] = user_id
-    
-    # Если это админ и ADMIN_ID ещё не установлен
     global ADMIN_ID
     if not ADMIN_ID and username and username.lower() == ADMIN_USERNAME.lower():
         ADMIN_ID = user_id
@@ -261,6 +266,17 @@ async def change_lang(callback: types.CallbackQuery):
     await callback.message.edit_text(texts[lang]['lang_changed'], reply_markup=main_menu(lang))
     await callback.answer()
 
+# ---------- ПОКАЗАТЬ ID ПОЛЬЗОВАТЕЛЯ ----------
+@dp.callback_query(lambda c: c.data == "show_my_id")
+async def show_my_id(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    lang = user_lang.get(user_id, 'ru')
+    admin_status = texts[lang]['you_are_admin'] if is_admin(user_id, callback.from_user.username) else ""
+    text = texts[lang]['show_id'].format(user_id, admin_status)
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=after_show_id_keyboard(lang))
+    await callback.answer()
+
+# ---------- АДМИН ПАНЕЛЬ ----------
 @dp.callback_query(lambda c: c.data == "admin_panel")
 async def admin_panel(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -297,7 +313,7 @@ async def admin_broadcast_send(message: types.Message, state: FSMContext):
         try:
             await bot.send_message(uid, f"📢 <b>Рассылка от администратора</b>\n\n{broadcast_text}", parse_mode="HTML")
             sent += 1
-            await asyncio.sleep(0.05)  # чтобы не блочить
+            await asyncio.sleep(0.05)
         except:
             pass
     
@@ -341,6 +357,7 @@ async def admin_users(callback: types.CallbackQuery):
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=admin_keyboard(lang))
     await callback.answer()
 
+# ---------- ГЕНЕРАЦИЯ КЛЮЧЕЙ ----------
 @dp.callback_query(lambda c: c.data == "gen_key")
 async def gen_key_start(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -408,6 +425,7 @@ async def process_count(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer(texts[lang]['error_count'])
 
+# ---------- ПРОВЕРКА КЛЮЧА ----------
 @dp.callback_query(lambda c: c.data == "check_key")
 async def check_key_start(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -427,6 +445,7 @@ async def check_key_process(message: types.Message, state: FSMContext):
     await message.answer(text, reply_markup=after_check_keyboard(lang))
     await state.clear()
 
+# ---------- HELP И UNKNOWN ----------
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
     user_id = message.from_user.id
@@ -444,12 +463,4 @@ async def main():
     while True:
         try:
             print("✅ Бот запущен и работает...")
-            print(f"👑 Администратор: @{ADMIN_USERNAME} (ID будет определён при первом входе)")
-            await dp.start_polling(bot)
-        except Exception as e:
-            print(f"❌ Ошибка: {e}")
-            print("🔄 Перезапуск через 5 секунд...")
-            await asyncio.sleep(5)
-
-if __name__ == "__main__":
-    asyncio.run(main())
+            print(f"👑 Администратор: @{ADMIN_USERNAME} (ID определится при 
