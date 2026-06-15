@@ -1,3 +1,4 @@
+import os
 import asyncio
 import time
 import hashlib
@@ -10,11 +11,10 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 
-# Отключаем лишние логи
-logging.basicConfig(level=logging.INFO)
-
-# ---------- ТОКЕН ----------
-BOT_TOKEN = "8952379479:AAEX8E1GvWREBjthkm7B_t-utWr8IhbeX_k"
+# ---------- ТОКЕН (читаем из переменных окружения Render) ----------
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN not set! Add environment variable on Render.")
 
 # ---------- НАСТРОЙКИ ----------
 MAX_KEYS = 100
