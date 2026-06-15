@@ -66,7 +66,7 @@ def check_key_valid(key: str) -> dict:
         if signature != expected_sig:
             return {'valid': False, 'reason': 'Неверная подпись'}
         return {'valid': True, 'reason': f'✅ Ключ действителен до {time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))}'}
-    except:
+    except Exception:
         return {'valid': False, 'reason': 'Неверный формат ключа'}
 
 # ---------- FSM ----------
@@ -191,13 +191,11 @@ def days_keyboard(lang):
     return InlineKeyboardMarkup(inline_keyboard=kb)
 
 def settings_keyboard(lang, is_admin_user: bool):
-    # Кнопка "Мой ID" для всех
     kb = [
         [InlineKeyboardButton(text=texts[lang]['my_id'], callback_data="show_my_id")],
         [InlineKeyboardButton(text=texts[lang]['lang_ru'], callback_data="lang_ru")],
         [InlineKeyboardButton(text=texts[lang]['lang_en'], callback_data="lang_en")]
     ]
-    # Кнопка админ панели только для админа
     if is_admin_user:
         kb.append([InlineKeyboardButton(text=texts[lang]['admin_panel'], callback_data="admin_panel")])
     kb.append([InlineKeyboardButton(text=texts[lang]['back'], callback_data="back_to_menu")])
@@ -268,7 +266,6 @@ async def change_lang(callback: types.CallbackQuery):
     await callback.message.edit_text(texts[lang]['lang_changed'], reply_markup=main_menu(lang))
     await callback.answer()
 
-# ---------- ПОКАЗАТЬ ID ПОЛЬЗОВАТЕЛЯ ----------
 @dp.callback_query(lambda c: c.data == "show_my_id")
 async def show_my_id(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -278,7 +275,6 @@ async def show_my_id(callback: types.CallbackQuery):
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=after_show_id_keyboard(lang))
     await callback.answer()
 
-# ---------- АДМИН ПАНЕЛЬ ----------
 @dp.callback_query(lambda c: c.data == "admin_panel")
 async def admin_panel(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -316,7 +312,7 @@ async def admin_broadcast_send(message: types.Message, state: FSMContext):
             await bot.send_message(uid, f"📢 <b>Рассылка от администратора</b>\n\n{broadcast_text}", parse_mode="HTML")
             sent += 1
             await asyncio.sleep(0.05)
-        except:
+        except Exception:
             pass
     
     await message.answer(texts[lang]['broadcast_sent'].format(sent))
@@ -359,7 +355,6 @@ async def admin_users(callback: types.CallbackQuery):
         await callback.message.edit_text(text, parse_mode="Markdown", reply_markup=admin_keyboard(lang))
     await callback.answer()
 
-# ---------- ГЕНЕРАЦИЯ КЛЮЧЕЙ ----------
 @dp.callback_query(lambda c: c.data == "gen_key")
 async def gen_key_start(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -427,7 +422,6 @@ async def process_count(message: types.Message, state: FSMContext):
     except ValueError:
         await message.answer(texts[lang]['error_count'])
 
-# ---------- ПРОВЕРКА КЛЮЧА ----------
 @dp.callback_query(lambda c: c.data == "check_key")
 async def check_key_start(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -447,7 +441,6 @@ async def check_key_process(message: types.Message, state: FSMContext):
     await message.answer(text, reply_markup=after_check_keyboard(lang))
     await state.clear()
 
-# ---------- HELP И UNKNOWN ----------
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
     user_id = message.from_user.id
@@ -465,4 +458,9 @@ async def main():
     while True:
         try:
             print("✅ Бот запущен и работает...")
- 
+            print(f"👑 Администратор: @{ADMIN_USERNAME} (ID определится при первом входе)")
+            await dp.start_polling(bot)
+        except Exception as e:
+            print(f"❌ Ошибка: {e}")
+            print("🔄 Перезапуск через 5 секунд...")
+         
